@@ -394,9 +394,9 @@ jobs:
                   DonutSimCommands.register();
                   DonutSimHudRenderer.register();
 
-                  openMenuKey = KeyBindingHelper.registerKeyMapping(new KeyMapping(
+                  openMenuKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                       "key.donutsim.open_menu",
-                      InputConstants.Type.KEYSYM,
+                      InputConstants.Type.KEYBOARD,
                       InputConstants.KEY_RSHIFT,
                       CATEGORY
                   ));
