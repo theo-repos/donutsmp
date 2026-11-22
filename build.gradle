@@ -19,6 +19,12 @@ repositories {
 }
 
 dependencies {
+    sourceSets {
+    main {
+        java.srcDirs = ['main/java', 'java']
+        resources.srcDirs = ['main/resources', 'resources']
+    }
+}
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     // Minecraft 26.1+ uses un-obfuscated Mojang mappings natively — no Yarn or modImplementation remapping
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
