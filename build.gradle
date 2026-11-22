@@ -1,30 +1,418 @@
-plugins {
-    id 'net.fabricmc.fabric-loom' version '1.17-SNAPSHOT'
-}
+name: Build Mod JAR
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+      - name: Generate Minecraft 26.3 Mod Sources
+        run: |
+          rm -f *.java *.json
+          rm -rf src
+          mkdir -p src/main/java/net/donutsim
+          mkdir -p src/main/resources/assets/donutsim/lang
 
-version = project.mod_version
-group = project.maven_group
+          cat << 'EOF' > gradle.properties
+          org.gradle.jvmargs=-Xmx2G
+          minecraft_version=26.3
+          loader_version=0.20.1
+          fabric_version=0.165.2+26.3
+          mod_version=1.0.0
+          maven_group=net.donutsim
+          archives_base_name=donutsim
+          EOF
 
-base {
-    archivesName = project.archives_base_name
-}
+          cat << 'EOF' > src/main/resources/fabric.mod.json
+          {
+            "schemaVersion": 1,
+            "id": "donutsim",
+            "version": "1.0.0",
+            "name": "DonutSim Client",
+            "description": "Client-side DonutSMP HUD, economy commands, and fake loot drops.",
+            "authors": ["DonutSim"],
+            "license": "MIT",
+            "environment": "client",
+            "entrypoints": {
+              "client": [
+                "net.donutsim.DonutSimClient"
+              ]
+            },
+            "depends": {
+              "fabricloader": ">=0.19.0",
+              "minecraft": "~26.3",
+              "java": ">=25",
+              "fabric-api": "*"
+            }
+          }
+          EOF
 
-dependencies {
-    minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
-    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-}
+          cat << 'EOF' > src/main/resources/assets/donutsim/lang/en_us.json
+          {
+            "key.category.donutsim.general": "DonutSim",
+            "key.donutsim.open_menu": "Open DonutSim Menu"
+          }
+          EOF
 
-tasks.withType(JavaCompile).configureEach {
-    it.options.release = 25
-}
+          cat << 'EOF' > src/main/java/net/donutsim/DonutSimConfig.java
+          package net.donutsim;
 
-java {
-    withSourcesJar()
-    sourceCompatibility = JavaVersion.VERSION_25
-    targetCompatibility = JavaVersion.VERSION_25
-}
+          import com.google.gson.Gson;
+          import com.google.gson.GsonBuilder;
+          import net.fabricmc.loader.api.FabricLoader;
+          import java.nio.file.Files;
+          import java.nio.file.Path;
+          import java.util.Locale;
 
-jar {
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-}
+          public class DonutSimConfig {
+              private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+              private static final Path PATH = FabricLoader.getInstance().getConfigDir().resolve("donutsim.json");
+              private static DonutSimConfig INSTANCE;
+
+              public boolean hudEnabled = true;
+              public long rawBalance = 1450000000L;
+              public String shards = "4,820";
+              public int kills = 142;
+              public int deaths = 18;
+              public String playtime = "4d 11h";
+
+              public static DonutSimConfig get() {
+                  if (INSTANCE == null) load();
+                  return INSTANCE;
+              }
+
+              public static void load() {
+                  try {
+                      if (Files.exists(PATH)) {
+                          INSTANCE = GSON.fromJson(Files.readString(PATH), DonutSimConfig.class);
+                      }
+                  } catch (Exception ignored) {}
+                  if (INSTANCE == null) {
+                      INSTANCE = new DonutSimConfig();
+                      save();
+                  }
+              }
+
+              public static void save() {
+                  try {
+                      Files.createDirectories(PATH.getParent());
+                      Files.writeString(PATH, GSON.toJson(get()));
+                  } catch (Exception ignored) {}
+              }
+
+              public String getFormattedBalance() {
+                  return formatMoney(rawBalance);
+              }
+
+              public static String formatMoney(long v) {
+                  if (v >= 1_000_000_000_000L) return String.format(Locale.US, "%.2fT", v / 1_000_000_000_000.0);
+                  if (v >= 1_000_000_000L) return String.format(Locale.US, "%.2fB", v / 1_000_000_000.0);
+                  if (v >= 1_000_000L) return String.format(Locale.US, "%.2fM", v / 1_000_000.0);
+                  if (v >= 1_000L) return String.format(Locale.US, "%.1fK", v / 1_000.0);
+                  return String.valueOf(v);
+              }
+
+              public static long parseMoney(String raw) {
+                  String s = raw.trim().toUpperCase(Locale.US).replace("$", "").replace(",", "");
+                  double mult = 1.0;
+                  if (s.endsWith("T")) { mult = 1_000_000_000_000.0; s = s.substring(0, s.length() - 1); }
+                  else if (s.endsWith("B")) { mult = 1_000_000_000.0; s = s.substring(0, s.length() - 1); }
+                  else if (s.endsWith("M")) { mult = 1_000_000.0; s = s.substring(0, s.length() - 1); }
+                  else if (s.endsWith("K")) { mult = 1_000.0; s = s.substring(0, s.length() - 1); }
+                  return (long) (Double.parseDouble(s) * mult);
+              }
+          }
+          EOF
+
+          cat << 'EOF' > src/main/java/net/donutsim/ChatHelper.java
+          package net.donutsim;
+
+          import net.minecraft.client.Minecraft;
+          import net.minecraft.network.chat.Component;
+
+          public class ChatHelper {
+              public static void send(Component message) {
+                  Minecraft mc = Minecraft.getInstance();
+                  if (mc.player != null) {
+                      mc.player.sendSystemMessage(message);
+                  }
+              }
+          }
+          EOF
+
+          cat << 'EOF' > src/main/java/net/donutsim/DonutSimHudRenderer.java
+          package net.donutsim;
+
+          import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+          import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
+          import net.minecraft.client.DeltaTracker;
+          import net.minecraft.client.Minecraft;
+          import net.minecraft.client.gui.GuiGraphicsExtractor;
+          import net.minecraft.network.chat.Component;
+          import net.minecraft.resources.Identifier;
+          import java.util.List;
+          import java.util.Locale;
+
+          public class DonutSimHudRenderer {
+              public static void register() {
+                  HudElementRegistry.attachElementBefore(
+                      VanillaHudElements.CHAT,
+                      Identifier.fromNamespaceAndPath("donutsim", "sidebar"),
+                      DonutSimHudRenderer::render
+                  );
+              }
+
+              private static void render(GuiGraphicsExtractor graphics, DeltaTracker delta) {
+                  DonutSimConfig cfg = DonutSimConfig.get();
+                  if (!cfg.hudEnabled) return;
+                  Minecraft mc = Minecraft.getInstance();
+                  if (mc.player == null || mc.gui.hud.isHidden()) return;
+
+                  double kd = cfg.deaths == 0 ? cfg.kills : (double) cfg.kills / cfg.deaths;
+                  List<String> lines = List.of(
+                      "§b§lDONUT SMP",
+                      " ",
+                      "§f$ §7Money: §a$" + cfg.getFormattedBalance(),
+                      "§d★ §7Shards: §d" + cfg.shards,
+                      "§c⚔ §7Kills: §f" + cfg.kills,
+                      "§4☠ §7Deaths: §f" + cfg.deaths,
+                      "§e⚡ §7K/D: §e" + String.format(Locale.US, "%.2f", kd),
+                      "§3⌚ §7Playtime: §b" + cfg.playtime,
+                      "  ",
+                      "§7donutsmp.net"
+                  );
+
+                  int width = 126;
+                  int lineHeight = 11;
+                  int boxHeight = lines.size() * lineHeight + 8;
+                  int x = graphics.guiWidth() - width - 6;
+                  int y = (graphics.guiHeight() - boxHeight) / 2;
+
+                  graphics.fill(x - 4, y - 4, x + width, y + boxHeight, 0x90000000);
+                  for (int i = 0; i < lines.size(); i++) {
+                      graphics.text(mc.font, Component.literal(lines.get(i)), x, y + (i * lineHeight), 0xFFFFFFFF);
+                  }
+              }
+          }
+          EOF
+
+          cat << 'EOF' > src/main/java/net/donutsim/DonutSimConfigScreen.java
+          package net.donutsim;
+
+          import net.minecraft.client.Minecraft;
+          import net.minecraft.client.gui.GuiGraphicsExtractor;
+          import net.minecraft.client.gui.components.Button;
+          import net.minecraft.client.gui.components.EditBox;
+          import net.minecraft.client.gui.screens.Screen;
+          import net.minecraft.network.chat.Component;
+
+          public class DonutSimConfigScreen extends Screen {
+              private EditBox balanceBox;
+              private EditBox shardsBox;
+
+              public DonutSimConfigScreen() {
+                  super(Component.literal("DonutSim Settings"));
+              }
+
+              @Override
+              protected void init() {
+                  DonutSimConfig cfg = DonutSimConfig.get();
+                  int cx = this.width / 2 - 100;
+
+                  this.addRenderableWidget(Button.builder(
+                      Component.literal("Sidebar HUD: " + (cfg.hudEnabled ? "ON" : "OFF")),
+                      btn -> {
+                          cfg.hudEnabled = !cfg.hudEnabled;
+                          btn.setMessage(Component.literal("Sidebar HUD: " + (cfg.hudEnabled ? "ON" : "OFF")));
+                          DonutSimConfig.save();
+                      }
+                  ).bounds(cx, 45, 200, 20).build());
+
+                  this.balanceBox = new EditBox(this.font, cx, 88, 200, 20, Component.literal("Balance"));
+                  this.balanceBox.setValue(cfg.getFormattedBalance());
+                  this.addRenderableWidget(this.balanceBox);
+
+                  this.shardsBox = new EditBox(this.font, cx, 128, 200, 20, Component.literal("Shards"));
+                  this.shardsBox.setValue(cfg.shards);
+                  this.addRenderableWidget(this.shardsBox);
+
+                  this.addRenderableWidget(Button.builder(
+                      Component.literal("+100M Balance"),
+                      btn -> {
+                          cfg.rawBalance += 100_000_000L;
+                          this.balanceBox.setValue(cfg.getFormattedBalance());
+                          DonutSimConfig.save();
+                      }
+                  ).bounds(cx, 158, 98, 20).build());
+
+                  this.addRenderableWidget(Button.builder(
+                      Component.literal("Fake Crate Win"),
+                      btn -> ChatHelper.send(Component.literal("§d§lCRATES §8» §fYou won §b§l1x Elytra §ffrom a §dPrime Crate§f!"))
+                  ).bounds(cx + 102, 158, 98, 20).build());
+
+                  this.addRenderableWidget(Button.builder(
+                      Component.literal("Save & Close"),
+                      btn -> {
+                          try {
+                              cfg.rawBalance = DonutSimConfig.parseMoney(this.balanceBox.getValue());
+                          } catch (Exception ignored) {}
+                          cfg.shards = this.shardsBox.getValue();
+                          DonutSimConfig.save();
+                          Minecraft.getInstance().gui.setScreen(null);
+                      }
+                  ).bounds(cx, 188, 200, 20).build());
+              }
+
+              @Override
+              public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
+                  super.extractRenderState(graphics, mouseX, mouseY, delta);
+                  graphics.centeredText(this.font, this.title, this.width / 2, 20, 0xFFFFFFFF);
+                  graphics.text(this.font, Component.literal("Balance (e.g. 1.5B, 500M):"), this.width / 2 - 100, 76, 0xFFAAAAAA);
+                  graphics.text(this.font, Component.literal("Shards:"), this.width / 2 - 100, 116, 0xFFAAAAAA);
+              }
+          }
+          EOF
+
+          cat << 'EOF' > src/main/java/net/donutsim/DonutSimCommands.java
+          package net.donutsim;
+
+          import com.mojang.brigadier.arguments.IntegerArgumentType;
+          import com.mojang.brigadier.arguments.StringArgumentType;
+          import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+          import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
+          import net.minecraft.client.Minecraft;
+          import net.minecraft.network.chat.Component;
+
+          public class DonutSimCommands {
+              public static void register() {
+                  ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
+                      dispatcher.register(ClientCommands.literal("bal").executes(ctx -> {
+                          DonutSimConfig cfg = DonutSimConfig.get();
+                          ChatHelper.send(Component.literal("§a§lBALANCE §8» §fYour current balance is §a$" + cfg.getFormattedBalance()));
+                          return 1;
+                      }));
+
+                      dispatcher.register(ClientCommands.literal("balance").executes(ctx -> {
+                          DonutSimConfig cfg = DonutSimConfig.get();
+                          ChatHelper.send(Component.literal("§a§lBALANCE §8» §fYour current balance is §a$" + cfg.getFormattedBalance()));
+                          return 1;
+                      }));
+
+                      dispatcher.register(ClientCommands.literal("pay")
+                          .then(ClientCommands.argument("player", StringArgumentType.word())
+                              .then(ClientCommands.argument("amount", StringArgumentType.word())
+                                  .executes(ctx -> {
+                                      String target = StringArgumentType.getString(ctx, "player");
+                                      String rawAmt = StringArgumentType.getString(ctx, "amount");
+                                      try {
+                                          long amt = DonutSimConfig.parseMoney(rawAmt);
+                                          DonutSimConfig cfg = DonutSimConfig.get();
+                                          if (amt <= 0 || amt > cfg.rawBalance) {
+                                              ChatHelper.send(Component.literal("§c§lERROR §8» §fInsufficient funds."));
+                                              return 1;
+                                          }
+                                          cfg.rawBalance -= amt;
+                                          DonutSimConfig.save();
+                                          String fmt = DonutSimConfig.formatMoney(amt);
+                                          ChatHelper.send(Component.literal("§a§lPAY §8» §fYou sent §a$" + fmt + " §fto §e" + target + "§f."));
+                                      } catch (Exception e) {
+                                          ChatHelper.send(Component.literal("§c§lERROR §8» §fInvalid amount."));
+                                      }
+                                      return 1;
+                                  }))));
+
+                      dispatcher.register(ClientCommands.literal("donutsim")
+                          .then(ClientCommands.literal("menu").executes(ctx -> {
+                              Minecraft mc = Minecraft.getInstance();
+                              mc.execute(() -> mc.gui.setScreen(new DonutSimConfigScreen()));
+                              return 1;
+                          }))
+                          .then(ClientCommands.literal("toggle").executes(ctx -> {
+                              DonutSimConfig cfg = DonutSimConfig.get();
+                              cfg.hudEnabled = !cfg.hudEnabled;
+                              DonutSimConfig.save();
+                              ChatHelper.send(Component.literal("§b§lDONUTSIM §8» §fSidebar HUD is now " + (cfg.hudEnabled ? "§aON" : "§cOFF")));
+                              return 1;
+                          }))
+                          .then(ClientCommands.literal("money")
+                              .then(ClientCommands.argument("amount", StringArgumentType.word()).executes(ctx -> {
+                                  DonutSimConfig cfg = DonutSimConfig.get();
+                                  cfg.rawBalance = DonutSimConfig.parseMoney(StringArgumentType.getString(ctx, "amount"));
+                                  DonutSimConfig.save();
+                                  ChatHelper.send(Component.literal("§b§lDONUTSIM §8» §fBalance set to §a$" + cfg.getFormattedBalance()));
+                                  return 1;
+                              })))
+                          .then(ClientCommands.literal("shards")
+                              .then(ClientCommands.argument("amount", StringArgumentType.word()).executes(ctx -> {
+                                  DonutSimConfig cfg = DonutSimConfig.get();
+                                  cfg.shards = StringArgumentType.getString(ctx, "amount");
+                                  DonutSimConfig.save();
+                                  ChatHelper.send(Component.literal("§b§lDONUTSIM §8» §fShards set to §d" + cfg.shards));
+                                  return 1;
+                              })))
+                          .then(ClientCommands.literal("kills")
+                              .then(ClientCommands.argument("count", IntegerArgumentType.integer(0)).executes(ctx -> {
+                                  DonutSimConfig cfg = DonutSimConfig.get();
+                                  cfg.kills = IntegerArgumentType.getInteger(ctx, "count");
+                                  DonutSimConfig.save();
+                                  ChatHelper.send(Component.literal("§b§lDONUTSIM §8» §fKills set to §f" + cfg.kills));
+                                  return 1;
+                              })))
+                          .then(ClientCommands.literal("drop")
+                              .then(ClientCommands.argument("item", StringArgumentType.greedyString()).executes(ctx -> {
+                                  String item = StringArgumentType.getString(ctx, "item");
+                                  ChatHelper.send(Component.literal("§d§lCRATES §8» §fYou won §b§l" + item + " §ffrom a §dPrime Crate§f!"));
+                                  return 1;
+                              }))));
+                  });
+              }
+          }
+          EOF
+
+          cat << 'EOF' > src/main/java/net/donutsim/DonutSimClient.java
+          package net.donutsim;
+
+          import com.mojang.blaze3d.platform.InputConstants;
+          import net.fabricmc.api.ClientModInitializer;
+          import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+          import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+          import net.minecraft.client.KeyMapping;
+          import net.minecraft.resources.Identifier;
+
+          public class DonutSimClient implements ClientModInitializer {
+              private static final KeyMapping.Category CATEGORY = KeyMapping.Category.register(
+                  Identifier.fromNamespaceAndPath("donutsim", "general")
+              );
+              private static KeyMapping openMenuKey;
+
+              @Override
+              public void onInitializeClient() {
+                  DonutSimConfig.load();
+                  DonutSimCommands.register();
+                  DonutSimHudRenderer.register();
+
+                  openMenuKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+                      "key.donutsim.open_menu",
+                      InputConstants.Type.KEYBOARD,
+                      InputConstants.KEY_RSHIFT,
+                      CATEGORY
+                  ));
+
+                  ClientTickEvents.END_CLIENT_TICK.register(client -> {
+                      while (openMenuKey.consumeClick()) {
+                          client.gui.setScreen(new DonutSimConfigScreen());
+                      }
+                  });
+              }
+          }
+          EOF
+      - name: Build JAR
+        run: |
+          gradle build > build_out.txt 2>&1 || (grep -i -E "FAILURE:|error:|Exception|Could not|cannot find" build_out.txt | tail -n 30; exit 1)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: donutsim-jar
+          path: build/libs/donutsim-1.0.0.jar
