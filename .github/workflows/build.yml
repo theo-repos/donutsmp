@@ -14,7 +14,7 @@ jobs:
           rm -f *.java *.json
           rm -rf src
           mkdir -p src/main/java/net/donutsim
-          mkdir -p src/main/resources
+          mkdir -p src/main/resources/assets/donutsim/lang
 
           cat << 'EOF' > gradle.properties
           org.gradle.jvmargs=-Xmx2G
@@ -47,6 +47,13 @@ jobs:
               "java": ">=25",
               "fabric-api": "*"
             }
+          }
+          EOF
+
+          cat << 'EOF' > src/main/resources/assets/donutsim/lang/en_us.json
+          {
+            "key.category.donutsim.general": "DonutSim",
+            "key.donutsim.open_menu": "Open DonutSim Menu"
           }
           EOF
 
@@ -129,8 +136,8 @@ jobs:
           public class ChatHelper {
               public static void send(Component message) {
                   Minecraft mc = Minecraft.getInstance();
-                  if (mc.player != null && mc.gui != null) {
-                      mc.gui.getChat().addMessage(message);
+                  if (mc.player != null) {
+                      mc.player.sendSystemMessage(message);
                   }
               }
           }
@@ -371,7 +378,7 @@ jobs:
           import com.mojang.blaze3d.platform.InputConstants;
           import net.fabricmc.api.ClientModInitializer;
           import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-          import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+          import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
           import net.minecraft.client.KeyMapping;
           import net.minecraft.resources.Identifier;
 
@@ -387,9 +394,9 @@ jobs:
                   DonutSimCommands.register();
                   DonutSimHudRenderer.register();
 
-                  openMenuKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                  openMenuKey = KeyBindingHelper.registerKeyMapping(new KeyMapping(
                       "key.donutsim.open_menu",
-                      InputConstants.Type.KEYBOARD,
+                      InputConstants.Type.KEYSYM,
                       InputConstants.KEY_RSHIFT,
                       CATEGORY
                   ));
