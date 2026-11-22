@@ -1,5 +1,5 @@
 plugins {
-    id 'net.fabricmc.fabric-loom-remap' version '1.17-SNAPSHOT'
+    id 'net.fabricmc.fabric-loom' version '1.17-SNAPSHOT'
 }
 
 version = project.mod_version
@@ -31,7 +31,6 @@ java {
     sourceCompatibility = JavaVersion.VERSION_25
     targetCompatibility = JavaVersion.VERSION_25
 }
-
 
 jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
