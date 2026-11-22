@@ -9,7 +9,15 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-      - run: gradle build --info --stacktrace
+      - name: Organize flat resources
+        run: |
+          mkdir -p src/main/resources/assets/donutsim
+          find . -maxdepth 4 -name "fabric.mod.json" -exec cp {} src/main/resources/ \;
+          find . -maxdepth 4 -name "donutsim.mixins.json" -exec cp {} src/main/resources/ \;
+          find . -maxdepth 4 -name "en_us.json" -exec cp {} src/main/resources/assets/donutsim/ \;
+      - name: Build JAR
+        run: |
+          gradle build > build_out.txt 2>&1 || (grep -i -E "FAILURE:|error:|Exception|Could not|cannot find" build_out.txt | tail -n 30; exit 1)
       - uses: actions/upload-artifact@v4
         with:
           name: donutsim-jar
